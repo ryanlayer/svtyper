@@ -38,12 +38,12 @@ description: Compute genotype of structural variants based on breakpoint depth")
     args = parser.parse_args()
 
     # if no input, check if part of pipe and if so, read stdin.
-    if args.input_vcf == None:
-        if sys.stdin.isatty():
-            parser.print_help()
-            exit(1)
-        else:
-            args.input_vcf = sys.stdin
+#    if args.input_vcf == None:
+#        if sys.stdin.isatty():
+#            parser.print_help()
+#            exit(1)
+#        else:
+#            args.input_vcf = sys.stdin
     # send back the user input
     return args
 
@@ -972,7 +972,7 @@ def write_sample_json(sample_list, lib_info_dump):
         s = {}
         s['sample_name'] = sample.name
         s['bam'] = sample.bam.filename
-        s['split_bam'] = sample.spl_bam.filename
+        s['split_bam'] = sample.spl_bam.filename if sample.spl_bam else None
         s['libraryArray'] = []
         s['mapped'] = sample.bam.mapped
         s['unmapped'] = sample.bam.unmapped
@@ -1363,46 +1363,66 @@ def main():
     global legacy
     legacy = args.legacy
 
-    # globally track the reads written to the BAM files
-    global out_bam
-    global out_splitters_bam
+
     global lib_info_dump
-    if args.dump:
-        template_bam = pysam.Samfile(args.split_bam.split(',')[0], 'rb')
-        out_bam = pysam.Samfile(args.dump + '.bam', 'wb', template_bam)
-        out_splitters_bam = pysam.Samfile(args.dump + '.splitters.bam', 'wb', template_bam)
-        template_bam.close()
-        lib_info_dump = open(args.dump + '.lib_info.json', 'w')
+    lib_info_dump = open(args.dump + '.lib_info.json', 'w')
+
+    bam_list = [pysam.Samfile(b, 'rb') for b in args.bam.split(',')]
+    spl_bam_list = []
+    if args.split_bam is not None:
+        spl_bam_list = [pysam.Samfile(b, 'rb') for b in args.split_bam.split(',')]
+        if len(bam_list) != len(spl_bam_list):
+            sys.stderr.write('\nError: Number of full BAMs and splitters BAMs differ.\n')
+            exit(1)
     else:
-        out_bam = None
-        out_splitters_bam = None
-        lib_info_dump = None
+        sys.stderr.write('Warning: Splitters BAM file (-S) not found. Performance will suffer.\n')
+        spl_bam_list = [None] * len(bam_list)
 
-    global out_bam_written_reads
-    out_bam_written_reads = set()
-    global out_splitters_bam_written_reads
-    out_splitters_bam_written_reads = set()
+    min_lib_prevalence = 1e-3 
 
-    # call primary function
-    sv_genotype(args.input_vcf,
-                args.bam,
-                args.split_bam,
-                args.output_vcf,
-                args.splflank,
-                args.discflank,
-                args.split_weight,
-                args.disc_weight,
-                args.num_samp,
-                args.lib_info_file,
-                args.debug)
+    sample_list = list()
+    for i in xrange(len(bam_list)):
+        sample = Sample.from_bam(bam_list[i], spl_bam_list[i], args.num_samp, min_lib_prevalence)
 
-    # close the files
-    args.input_vcf.close()
-    if args.dump is not None:
-        out_bam.close()
-        out_splitters_bam.close()
-    if args.lib_info_file is not None:
-        args.lib_info_file.close()
+        sample_list.append(sample)
+    
+    write_sample_json(sample_list, lib_info_dump)
+#
+# 
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#    sv_genotype(args.input_vcf,
+#                args.bam,
+#                args.split_bam,
+#                args.output_vcf,
+#                args.splflank,
+#                args.discflank,
+#                args.split_weight,
+#                args.disc_weight,
+#                args.num_samp,
+#                args.lib_info_file,
+#                args.debug)
+#
+#    # close the files
+#    args.input_vcf.close()
+#    if args.dump is not None:
+#        out_bam.close()
+#        out_splitters_bam.close()
+#    if args.lib_info_file is not None:
+#        args.lib_info_file.close()
 
 # initialize the script
 if __name__ == '__main__':
